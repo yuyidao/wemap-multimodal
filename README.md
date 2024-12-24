@@ -13,12 +13,14 @@
 自动化消融实验流程，输出模型性能指标（Accuracy、Precision、Recall、F1-Score）。
 支持自定义数据集和动态模型选择。
 ## 文件结构
+、、、
 project/
-│
-├── Ablation_experiment.py      # 主程序，包含训练和评估逻辑
-├── class_definition.py         # 模型和数据集的定义
-├── eval_all_model.py           # CLIP 和 ViLT 的评估整合逻辑
-├── train_data.csv              # 样本数据（文本、图像路径和标签）
-├── result/                     # 评估结果输出目录
-│   └── model_evaluation_results.csv  # 评估结果保存文件
-└── model_data/                 # 模型权重文件和预训练模型存储路径
+    │
+    |- Ablation_experiment.py      # 主程序，包含训练和评估逻辑
+    |- class_definition.py         # 模型和数据集的定义
+    |- eval_all_model.py           # CLIP 和 ViLT 的评估整合逻辑
+    |- train_data.csv              # 样本数据（文本、图像路径和标签）
+    |- result/                     # 评估结果输出目录
+    │   └── model_evaluation_results.csv  # 评估结果保存文件
+    └── model_data/                 # 模型权重文件和预训练模型存储路径
+、、、
