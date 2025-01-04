@@ -7,6 +7,8 @@ from PIL import Image
 import pandas as pd
 import os
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import confusion_matrix
+
 
 
 
@@ -138,26 +140,36 @@ class MultiModalDataset(Dataset):
 
 
 class EarlyFusionModel(nn.Module):
-    def __init__(self, num_classes, bert_model_name='model_data/local_bert_base_chinese'):
+    def __init__(self, num_classes):
         super(EarlyFusionModel, self).__init__()
-        self.bert = BertModel.from_pretrained(bert_model_name)
+        # 加载预训练的 ResNet50
         self.resnet = models.resnet50(pretrained=True)
-        self.resnet.fc = nn.Identity()  # 去掉 ResNet 的最后一层
 
-        # 融合后特征尺寸
-        self.fc = nn.Sequential(
-            nn.Linear(self.bert.config.hidden_size + self.resnet.fc.in_features, 512),
-            nn.ReLU(),
-            nn.Linear(512, num_classes)
-        )
+        # 在替换之前记录 in_features
+        self.resnet_in_features = self.resnet.fc.in_features
+
+        # 替换全连接层为 Identity
+        self.resnet.fc = nn.Identity()
+
+        # BERT 模型初始化
+        self.bert = BertModel.from_pretrained('model_data/local_bert_base_chinese')
+        self.bert_fc = nn.Linear(self.bert.config.hidden_size, 256)
+
+        # 定义融合后的全连接层
+        self.fc = nn.Linear(self.resnet_in_features + 256, num_classes)
 
     def forward(self, input_ids, attention_mask, images):
+        # 获取文本特征
         bert_output = self.bert(input_ids=input_ids, attention_mask=attention_mask)
-        text_features = bert_output.pooler_output
+        text_features = self.bert_fc(bert_output.pooler_output)
 
+        # 获取图像特征
         image_features = self.resnet(images)
+
+        # 特征拼接
         combined_features = torch.cat((text_features, image_features), dim=1)
         output = self.fc(combined_features)
+
         return output
 
 
@@ -196,7 +208,7 @@ def train_model(model_name, device, model, data_loader, criterion, optimizer, nu
                 images.to(device),
                 labels.to(device),
             )
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask, images=images)
+            outputs = model(input_ids, attention_mask, images)
 
             loss = criterion(outputs, labels)
             loss.backward()
@@ -204,7 +216,11 @@ def train_model(model_name, device, model, data_loader, criterion, optimizer, nu
             epoch_loss += loss.item()
 
         print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss / len(data_loader):.4f}")
-    print(f"Finished training {model_name}.")
+
+    # 保存模型权重
+    save_path = f"model_data/model/{model_name}.pth"
+    torch.save(model.state_dict(), save_path)
+    print(f"Finished training {model_name}, Model {model_name} saved at {save_path}")
 
 
 def evaluate_model(device, model, data_loader, model_name):
@@ -213,19 +229,18 @@ def evaluate_model(device, model, data_loader, model_name):
     with torch.no_grad():
         for batch in data_loader:
             input_ids, attention_mask, images, labels = batch
-            input_ids, attention_mask, images, labels = (
-                input_ids.to(device),
-                attention_mask.to(device),
-                images.to(device),
-                labels.to(device),
-            )
+            input_ids = input_ids.to(device)
+            attention_mask = attention_mask.to(device)
+            images = images.to(device)
+            labels = labels.to(device)
 
-            logits = model(input_ids=input_ids, attention_mask=attention_mask, images=images)
+            logits = model(input_ids, attention_mask, images)
 
             preds = torch.argmax(logits, dim=1)
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
 
+    generate_confusion_matrix(all_labels, all_preds, [0,1,2,3,4], model_name)
     # 计算评估指标
     metrics = {
         "Accuracy": accuracy_score(all_labels, all_preds),
@@ -234,3 +249,17 @@ def evaluate_model(device, model, data_loader, model_name):
         "F1-score": f1_score(all_labels, all_preds, average="weighted"),
     }
     return metrics
+
+
+def generate_confusion_matrix(true_labels, pred_labels, class_names, model_name):
+
+    # 计算混淆矩阵
+    cm = confusion_matrix(true_labels, pred_labels, labels=range(len(class_names)))
+
+    # 保存为 CSV 文件
+    cm_df = pd.DataFrame(cm, index=class_names, columns=class_names)
+    save_path = f"{model_name}_confusion_matrix.csv"
+    cm_df.to_csv(save_path)
+    print(f"Confusion matrix data for {model_name} saved at {save_path}")
+
+    return cm

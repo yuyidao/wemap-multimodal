@@ -12,6 +12,7 @@ import time
 def main():
     # 配置文件路径和参数
     csv_file = 'train_data.csv'  # CSV文件路径
+    test_file = 'test_data.csv'
     img_dir = '../data_stroge/row_data/'  # 图像文件夹路径
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     num_classes = len(os.listdir(img_dir))  # 类别数量等于子文件夹的数量
@@ -23,11 +24,14 @@ def main():
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
-    dataset = cla.MultiModalDataset(csv_file, img_dir, tokenizer, transform=transform)
-    data_loader = DataLoader(dataset, batch_size=4, shuffle=True)
+    # train_dataset = cla.MultiModalDataset(csv_file, img_dir, tokenizer, transform=transform)
+    # train_data_loader = DataLoader(train_dataset, batch_size=4, shuffle=True)
+    # train_all(num_classes, device, train_data_loader)
 
-    train_all(num_classes, device, data_loader)
-    eval_all(num_classes, device, data_loader)
+
+    test_dataset = cla.MultiModalDataset(test_file, img_dir, tokenizer, transform=transform)
+    test_data_loader = DataLoader(test_dataset, batch_size=4, shuffle=True)
+    eval_all(num_classes, device, test_data_loader)
 
 
 def train_all(num_classes, device, data_loader):
@@ -38,7 +42,8 @@ def train_all(num_classes, device, data_loader):
         'ImageOnlyModel',
         'NoFusionLayerModel',
         'EarlyFusionModel',
-        'LateFusionModel']
+        'LateFusionModel'
+    ]
 
     training_times = {}
 
@@ -74,21 +79,23 @@ def train_all(num_classes, device, data_loader):
         training_times[model_name] = training_duration
         print(f"Training time for {model_name}: {training_duration:.2f} seconds")
 
-    # 保存训练时间数据到CSV文件
-    training_times_df = pd.DataFrame(list(training_times.items()), columns=['Model', 'Training Time (Seconds)'])
-    training_times_df.to_csv('model_training_times.csv', index=False)
-    print("Training times for all models have been saved to 'model_training_times.csv'.")
+        training_times_df = pd.DataFrame(list(training_times.items()), columns=['Model', 'Training Time (Seconds)'])
+        training_times_df.to_csv(f'{model_name}_model_training_times.csv', index=False)
+
+    # # 保存训练时间数据到CSV文件
+    # training_times_df = pd.DataFrame(list(training_times.items()), columns=['Model', 'Training Time (Seconds)'])
+    # training_times_df.to_csv('model_training_times.csv', index=False)
+    # print("Training times for all models have been saved to 'model_training_times.csv'.")
 
 
 def eval_all(num_classes, device, data_loader):
-    # 模型路径
     model_paths = {
-        'MultiModalModel': 'MultiModalModel.pth',
-        'TextOnlyModel': 'TextOnlyModel.pth',
-        'ImageOnlyModel': 'ImageOnlyModel.pth',
-        'NoFusionLayerModel': 'NoFusionLayerModel.pth',
-        'EarlyFusionModel': 'EarlyFusionModel.pth',
-        'LateFusionModel': 'LateFusionModel.pth',
+        'MultiModalModel': 'model_data/model/MultiModalModel.pth',
+        'TextOnlyModel': 'model_data/model/TextOnlyModel.pth',
+        'ImageOnlyModel': 'model_data/model/ImageOnlyModel.pth',
+        'NoFusionLayerModel': 'model_data/model/NoFusionLayerModel.pth',
+        'EarlyFusionModel': 'model_data/model/EarlyFusionModel.pth',
+        'LateFusionModel': 'model_data/model/LateFusionModel.pth',
     }
 
     results = []
@@ -97,38 +104,35 @@ def eval_all(num_classes, device, data_loader):
         print(f"Evaluating {model_name}...")
 
         # 初始化对应模型
-        if model_name == 'MultiModalModel':
+        if 'MultiModalModel' in model_name:
             model = cla.MultiModalModel(num_classes=num_classes).to(device)
-        elif model_name == 'TextOnlyModel':
+        elif 'TextOnlyModel' in model_name:
             model = cla.TextOnlyModel(num_classes=num_classes).to(device)
-        elif model_name == 'ImageOnlyModel':
+        elif 'ImageOnlyModel' in model_name:
             model = cla.ImageOnlyModel(num_classes=num_classes).to(device)
-        elif model_name == 'NoFusionLayerModel':
+        elif 'NoFusionLayerModel' in model_name:
             model = cla.NoFusionLayerModel(num_classes=num_classes).to(device)
-        elif model_name == 'EarlyFusionModel':
+        elif 'EarlyFusionModel' in model_name:
             model = cla.EarlyFusionModel(num_classes=num_classes).to(device)
-        elif model_name == 'LateFusionModel':
+        elif 'LateFusionModel' in model_name:
             model = cla.LateFusionModel(num_classes=num_classes).to(device)
 
-        # 加载模型权重
+        # 加载权重
         model.load_state_dict(torch.load(model_path))
+        print(f"{model_name} weights loaded from {model_path}")
 
         # 评估模型
-        accuracy, precision, recall, f1 = cla.evaluate_model(model, data_loader, device)
-
+        metrics = cla.evaluate_model(device, model, data_loader, model_name)
         results.append({
-            'Model': model_name,
-            'Accuracy': accuracy,
-            'Precision': precision,
-            'Recall': recall,
-            'F1-Score': f1
+            "Model": model_name,
+            **metrics
         })
 
-    # 转换结果为DataFrame
-    results_df = pd.DataFrame(results)
+        # 保存评估结果
+        results_df = pd.DataFrame(results)
+        results_df.to_csv(f"{model_name}_evaluation_results.csv", index=False)
+        print("Evaluation results saved to evaluation_results.csv")
 
-    # 保存为CSV文件
-    results_df.to_csv('Ablation_evaluation_results.csv', index=False)
 
 
 if __name__=="__main__":
